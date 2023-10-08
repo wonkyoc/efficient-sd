@@ -6,7 +6,7 @@ from tqdm.auto import tqdm
 from PIL import Image
 import torch
 from transformers import CLIPTextModel, CLIPTokenizer
-from diffusers import AutoencoderKL, UNet2DConditionModel, UniPCMultistepScheduler
+from diffusers import AutoencoderKL, UNet2DConditionModel, PNDMScheduler
 from torch.profiler import profile, record_function, ProfilerActivity
 
 
@@ -19,18 +19,21 @@ text_encoder = CLIPTextModel.from_pretrained(
         "CompVis/stable-diffusion-v1-4", subfolder="text_encoder", use_safetensors=True)
 unet = UNet2DConditionModel.from_pretrained(
         "CompVis/stable-diffusion-v1-4", subfolder="unet", use_safetensors=True)
-scheduler = UniPCMultistepScheduler.from_pretrained(
+scheduler = PNDMScheduler.from_pretrained(
         "CompVis/stable-diffusion-v1-4", subfolder="scheduler")
 
 # Setting
 prompt = ["a photograph of an astronaut riding a horse"]
 height = 512  # default height of Stable Diffusion
 width = 512  # default width of Stable Diffusion
-num_inference_steps = 25  # Number of denoising steps
+num_inference_steps = 1  # Number of denoising steps
 guidance_scale = 7.5  # Scale for classifier-free guidance
 generator = torch.manual_seed(0)  # Seed generator to create the inital latent noise
+
 batch_size = len(prompt)
 
+
+start = time.time_ns()
 text_input = tokenizer(
         prompt, padding="max_length", max_length=tokenizer.model_max_length,
         truncation=True, return_tensors="pt")
@@ -53,6 +56,7 @@ latents = latents * scheduler.init_noise_sigma
 # Denoise the image
 scheduler.set_timesteps(num_inference_steps)
 
+start = time.time_ns()
 for t in tqdm(scheduler.timesteps):
     # expand the latents if we are doing classifier-free guidance
     # to avoid doing two forward passes.
@@ -68,8 +72,6 @@ for t in tqdm(scheduler.timesteps):
     #print(prof.key_averages().table(sort_by="cpu_memory_usage"))
     #prof.export_chrome_trace("trace.json")
 
-    1/0
-
     # perform guidance
     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
@@ -77,7 +79,11 @@ for t in tqdm(scheduler.timesteps):
     # compute the previous noisy sample x_t -> x_t-1
     latents = scheduler.step(noise_pred, t, latents).prev_sample
 
+end = time.time_ns()
 # scale and decode the image latents with vae
 latents = 1 / 0.18215 * latents
 with torch.no_grad():
     image = vae.decode(latents).sample
+
+exec_time = f"{(end - start) / 1e6:.1f}"
+print(f"Execution time -- {exec_time} ms\n")
